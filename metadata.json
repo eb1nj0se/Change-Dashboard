@@ -1,0 +1,6 @@
+{
+  "name": "ChangeTracker Pro",
+  "description": "Dashboard for managing server patches and upgrades, processing cutover Excel plans with real-time progression tracking and incident logging.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
