@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { ArrowLeft, Save, Undo, Check, Inbox, X } from 'lucide-react';
+import { ArrowLeft, Save, Undo, Check, Inbox, X, ChevronDown, ChevronUp, Clock } from 'lucide-react';
 import { Session, Task, TaskState } from '../types';
 import { cn } from '../lib/utils';
 
@@ -61,6 +61,7 @@ interface SessionViewProps {
   onLogAck: (taskId: string) => void;
   onLogDone: (taskId: string) => void;
   onLogCustomEvent: (type: string, details: string) => void;
+  onAddCheckpoint: (taskId: string, durationMins: number) => void;
   onUndo: (taskId: string) => void;
 }
 
@@ -71,6 +72,7 @@ export function SessionView({
   onLogAck,
   onLogDone,
   onLogCustomEvent,
+  onAddCheckpoint,
   onUndo
 }: SessionViewProps) {
   const [selectedTask, setSelectedTask] = useState<string>('');
@@ -80,6 +82,26 @@ export function SessionView({
   
   const [isTaskSelectionOpen, setIsTaskSelectionOpen] = useState(false);
   const [selectedTaskIdsToStart, setSelectedTaskIdsToStart] = useState<Set<string>>(new Set());
+
+  const [isEventLogExpanded, setIsEventLogExpanded] = useState(false);
+  const [isTaskProgressionExpanded, setIsTaskProgressionExpanded] = useState(true);
+
+  const [checkpointTaskId, setCheckpointTaskId] = useState<string | null>(null);
+  const [checkpointDuration, setCheckpointDuration] = useState<number>(15);
+
+  const toggleEventLog = () => {
+    setIsEventLogExpanded(!isEventLogExpanded);
+    if (!isEventLogExpanded) {
+      setIsTaskProgressionExpanded(false);
+    }
+  };
+
+  const toggleTaskProgression = () => {
+    setIsTaskProgressionExpanded(!isTaskProgressionExpanded);
+    if (!isTaskProgressionExpanded) {
+      setIsEventLogExpanded(false);
+    }
+  };
 
   useEffect(() => {
     // Auto-select the first task when activeTasks changes
@@ -100,6 +122,18 @@ export function SessionView({
     }
     onLogCustomEvent(eventType, eventDetails);
     setEventDetails('');
+  };
+
+  const handleAddCheckpoint = (taskId: string) => {
+    setCheckpointTaskId(taskId);
+    setCheckpointDuration(15);
+  };
+
+  const submitCheckpoint = () => {
+    if (checkpointTaskId && checkpointDuration > 0) {
+      onAddCheckpoint(checkpointTaskId, checkpointDuration);
+      setCheckpointTaskId(null);
+    }
   };
 
   const handleNextTasksClick = () => {
@@ -171,14 +205,22 @@ export function SessionView({
       <div className="flex-1 flex overflow-hidden p-6 max-w-[1600px] mx-auto w-full gap-6">
         
         {/* Left Column: Controls */}
-        <div className="w-[360px] shrink-0 flex flex-col space-y-6 overflow-y-auto pr-2 custom-scrollbar">
+        <div className="w-[360px] shrink-0 flex flex-col space-y-4 overflow-y-auto pr-2 custom-scrollbar">
           
-          <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200/60 flex flex-col relative overflow-hidden group">
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 flex flex-col relative overflow-hidden group">
             <div className="absolute top-0 left-0 w-1 h-full bg-indigo-500 rounded-l-2xl"></div>
-            <h2 className="font-bold text-slate-800 mb-4 text-sm tracking-wide uppercase">1. Task Progression</h2>
+            <div 
+              className="p-5 flex justify-between items-center cursor-pointer select-none"
+              onClick={toggleTaskProgression}
+            >
+              <h2 className="font-bold text-slate-800 text-sm tracking-wide uppercase">1. Task Progression</h2>
+              {isTaskProgressionExpanded ? <ChevronUp className="w-5 h-5 text-slate-400" /> : <ChevronDown className="w-5 h-5 text-slate-400" />}
+            </div>
             
-            <button
-              onClick={handleNextTasksClick}
+            {isTaskProgressionExpanded && (
+              <div className="px-5 pb-5">
+                <button
+                  onClick={handleNextTasksClick}
               className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2.5 px-4 rounded-lg mb-4 shadow-sm transition-colors text-sm"
             >
               🚀 Send Next Tasks
@@ -228,14 +270,24 @@ export function SessionView({
               >
                 <Check className="w-3.5 h-3.5 mr-1.5" /> DONE (Green)
               </button>
-            </div>
+                </div>
+              </div>
+            )}
           </div>
 
-          <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200/60 flex flex-col relative overflow-hidden group">
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 flex flex-col relative overflow-hidden group">
             <div className="absolute top-0 left-0 w-1 h-full bg-rose-500 rounded-l-2xl"></div>
-            <h2 className="font-bold text-slate-800 mb-4 text-sm tracking-wide uppercase">2. Event Logging</h2>
+            <div 
+              className="p-5 flex justify-between items-center cursor-pointer select-none"
+              onClick={toggleEventLog}
+            >
+              <h2 className="font-bold text-slate-800 text-sm tracking-wide uppercase">2. Event Logging</h2>
+              {isEventLogExpanded ? <ChevronUp className="w-5 h-5 text-slate-400" /> : <ChevronDown className="w-5 h-5 text-slate-400" />}
+            </div>
             
-            <label className="block text-xs text-slate-500 font-semibold uppercase tracking-wider mb-2">Event Type</label>
+            {isEventLogExpanded && (
+              <div className="px-5 pb-5">
+                <label className="block text-xs text-slate-500 font-semibold uppercase tracking-wider mb-2">Event Type</label>
             <select
               value={eventType}
               onChange={(e) => setEventType(e.target.value)}
@@ -255,12 +307,14 @@ export function SessionView({
               className="w-full border border-slate-300 rounded-lg p-3 mb-4 bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none text-sm resize-none transition-all shadow-sm text-slate-700"
             />
 
-            <button
-              onClick={handleRegisterEvent}
-              className="w-full bg-rose-500 hover:bg-rose-600 text-white font-semibold py-2.5 px-4 rounded-lg shadow-sm transition-colors text-sm flex items-center justify-center"
-            >
-              <span className="mr-2">🛑</span> Log Event
-            </button>
+                <button
+                  onClick={handleRegisterEvent}
+                  className="w-full bg-rose-500 hover:bg-rose-600 text-white font-semibold py-2.5 px-4 rounded-lg shadow-sm transition-colors text-sm flex items-center justify-center"
+                >
+                  <span className="mr-2">🛑</span> Log Event
+                </button>
+              </div>
+            )}
           </div>
 
         </div>
@@ -305,11 +359,44 @@ export function SessionView({
           </div>
           
           <div className="p-5 flex-1 flex flex-col overflow-y-auto bg-slate-50 space-y-6">
-            <div className="text-center pb-4 border-b border-slate-200/60">
+            <div className="flex flex-col items-center pb-4 border-b border-slate-200/60 gap-3">
               {selectedTask ? (
-                <span className="text-indigo-600 font-bold text-lg">
-                  Task {selectedTask}
-                </span>
+                <>
+                  <span className="text-indigo-600 font-bold text-lg">
+                    Task {selectedTask}
+                  </span>
+                  {checkpointTaskId === selectedTask ? (
+                    <div className="flex items-center gap-2 mt-1">
+                      <input 
+                        type="number" 
+                        min="1" 
+                        value={checkpointDuration} 
+                        onChange={e => setCheckpointDuration(Number(e.target.value))}
+                        className="w-16 px-2 py-1 border border-slate-300 rounded-md text-sm outline-none focus:border-indigo-500 text-center font-semibold text-slate-700"
+                      />
+                      <span className="text-xs text-slate-500 font-semibold uppercase tracking-wider">mins</span>
+                      <button 
+                        onClick={submitCheckpoint}
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-3 py-1.5 rounded-md transition-colors shadow-sm ml-1"
+                      >
+                        Start
+                      </button>
+                      <button 
+                        onClick={() => setCheckpointTaskId(null)}
+                        className="text-slate-400 hover:text-slate-600 p-1"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => handleAddCheckpoint(selectedTask)}
+                      className="flex items-center justify-center bg-white border border-indigo-200 hover:bg-indigo-50 hover:border-indigo-300 text-indigo-700 font-semibold py-1.5 px-3 rounded-lg shadow-sm transition-colors text-xs"
+                    >
+                      <Clock className="w-3.5 h-3.5 mr-1.5" /> Add Checkpoint
+                    </button>
+                  )}
+                </>
               ) : (
                 <span className="text-slate-400 font-medium italic text-sm">
                   Select a task to view details

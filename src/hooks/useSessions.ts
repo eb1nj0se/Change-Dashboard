@@ -276,6 +276,60 @@ export function useSessions() {
     });
   };
 
+  const addCheckpoint = (changeNumber: string, originalTaskId: string, durationMins: number) => {
+    setSessions(prev => {
+      const session = prev[changeNumber];
+      if (!session) return prev;
+
+      const newTaskId = `CP - ${originalTaskId}`;
+      const now = Date.now();
+
+      const newTask: Task = {
+        id: newTaskId,
+        team: "System",
+        desc: `Checkpoint added for task ${originalTaskId}`,
+        poc: "System",
+        durationMins,
+        plannedStart: now
+      };
+
+      const newEvent: FeedEvent = {
+        id: generateId(),
+        timestamp: getBstTimestamp(),
+        message: `⏱️ Added ${durationMins}m checkpoint for Task ${originalTaskId}`,
+        tag: 'tag_note'
+      };
+
+      const historyItem: ActionHistoryItem = {
+        id: generateId(),
+        type: 'event',
+        feedEventIds: [newEvent.id]
+      };
+
+      return {
+        ...prev,
+        [changeNumber]: {
+          ...session,
+          activeTasks: [...session.activeTasks, newTask],
+          activeTaskStates: {
+            ...session.activeTaskStates,
+            [newTaskId]: {
+              status: 'pink',
+              history: [],
+              startedAt: now
+            }
+          },
+          globalTaskDetails: {
+            ...session.globalTaskDetails,
+            [newTaskId]: newTask
+          },
+          feed: [...session.feed, newEvent],
+          actionHistory: [...session.actionHistory, historyItem]
+        }
+      };
+    });
+  };
+
   const logCustomEvent = (changeNumber: string, eventType: string, details: string) => {
     setSessions(prev => {
       const session = prev[changeNumber];
@@ -398,6 +452,7 @@ export function useSessions() {
     logAck,
     logDone,
     logCustomEvent,
+    addCheckpoint,
     undoLastAction
   };
 }

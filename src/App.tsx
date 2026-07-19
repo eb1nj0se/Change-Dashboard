@@ -16,6 +16,7 @@ export default function App() {
     logAck,
     logDone,
     logCustomEvent,
+    addCheckpoint,
     undoLastAction
   } = useSessions();
 
@@ -37,6 +38,7 @@ export default function App() {
         onLogAck={(taskId) => logAck(activeChange, taskId)}
         onLogDone={(taskId) => logDone(activeChange, taskId)}
         onLogCustomEvent={(type, details) => logCustomEvent(activeChange, type, details)}
+        onAddCheckpoint={(taskId, durationMins) => addCheckpoint(activeChange, taskId, durationMins)}
         onUndo={(taskId) => undoLastAction(activeChange, taskId)}
       />
     );

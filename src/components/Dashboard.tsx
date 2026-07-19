@@ -21,13 +21,17 @@ const SessionTile: React.FC<{ session: Session; onClick: () => void }> = ({ sess
   };
 
   let leastDurationTask: Task | null = null;
+  let leastRemainingMs = Infinity;
   let leastDurationMs = Infinity;
 
   session.activeTasks.forEach(task => {
     const state = session.activeTaskStates[task.id];
     if (state && state.status !== 'green') {
       const durMs = Math.max(1, task.durationMins || 1) * 60 * 1000;
-      if (durMs < leastDurationMs) {
+      const elapsed = now - (state.startedAt || now);
+      const remaining = Math.max(0, durMs - Math.max(0, elapsed));
+      if (remaining < leastRemainingMs) {
+        leastRemainingMs = remaining;
         leastDurationMs = durMs;
         leastDurationTask = task;
       }
