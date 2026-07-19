@@ -22,8 +22,8 @@ export default function App() {
 
   const [activeChange, setActiveChange] = useState<string | null>(null);
 
-  const handleNewSession = async (changeNumber: string, file: File) => {
-    const success = await createSession(changeNumber, file);
+  const handleNewSession = async (changeNumber: string, file: File, regressionStartTask?: string) => {
+    const success = await createSession(changeNumber, file, regressionStartTask);
     if (success) {
       setActiveChange(changeNumber);
     }
@@ -34,7 +34,7 @@ export default function App() {
       <SessionView
         session={sessions[activeChange]}
         onBack={() => setActiveChange(null)}
-        onNextTasks={(selectedTaskIds) => triggerNextTasks(activeChange, selectedTaskIds)}
+        onNextTasks={(selectedTaskIds, uncheckedTaskIds) => triggerNextTasks(activeChange, selectedTaskIds, uncheckedTaskIds)}
         onLogAck={(taskId) => logAck(activeChange, taskId)}
         onLogDone={(taskId) => logDone(activeChange, taskId)}
         onLogCustomEvent={(type, details) => logCustomEvent(activeChange, type, details)}

@@ -57,7 +57,7 @@ function TaskProgressBars({ activeTasks, activeTaskStates }: { activeTasks: Task
 interface SessionViewProps {
   session: Session;
   onBack: () => void;
-  onNextTasks: (selectedTaskIds: string[]) => void;
+  onNextTasks: (selectedTaskIds: string[], uncheckedTaskIds: string[]) => void;
   onLogAck: (taskId: string) => void;
   onLogDone: (taskId: string) => void;
   onLogCustomEvent: (type: string, details: string) => void;
@@ -136,13 +136,65 @@ export function SessionView({
     }
   };
 
+  const [eligibleTasks, setEligibleTasks] = useState<{task: Task, defaultChecked: boolean, warning?: string}[]>([]);
+
   const handleNextTasksClick = () => {
-    if (session.currentBlockIdx >= session.taskBlocks.length) {
-      alert("You have reached the end of the cutover plan!");
+    const eligible: {task: Task, defaultChecked: boolean, warning?: string}[] = [];
+    const now = Date.now();
+    const allDispatched = new Set(session.dispatchedTaskIds || []);
+    const allCompleted = new Set(session.completedTaskIds || []);
+    
+    const isVeryFirstTime = allDispatched.size === 0;
+
+    if (isVeryFirstTime) {
+      // For the first time, ignore dependencies and send the first block of tasks
+      const firstBlock = session.taskBlocks[0] || [];
+      for (const task of firstBlock) {
+        eligible.push({ task, defaultChecked: true, warning: "Initial tasks bypassed dependency check." });
+      }
+    } else {
+      for (const task of session.allTasks || []) {
+        if (allDispatched.has(task.id)) continue;
+
+        let allDepsMet = true;
+        let hasTimeConstraint = false;
+        let timeMet = false;
+
+        for (const dep of (task.dependencies || [])) {
+          if (dep === 'Time') {
+            hasTimeConstraint = true;
+            if (task.plannedStart && now >= task.plannedStart) {
+              timeMet = true;
+            }
+          } else {
+            if (!allCompleted.has(dep)) {
+              allDepsMet = false;
+              break;
+            }
+          }
+        }
+
+        if (!allDepsMet) continue;
+
+        if (hasTimeConstraint) {
+          if (timeMet) {
+            eligible.push({ task, defaultChecked: true });
+          } else {
+            eligible.push({ task, defaultChecked: false, warning: "Planned start time not reached." });
+          }
+        } else {
+          eligible.push({ task, defaultChecked: true });
+        }
+      }
+    }
+
+    if (eligible.length === 0) {
+      alert("No more tasks are eligible to start at this time.");
       return;
     }
-    const nextTasks = session.taskBlocks[session.currentBlockIdx];
-    setSelectedTaskIdsToStart(new Set(nextTasks.map(t => t.id)));
+
+    setEligibleTasks(eligible);
+    setSelectedTaskIdsToStart(new Set(eligible.filter(e => e.defaultChecked).map(e => e.task.id)));
     setIsTaskSelectionOpen(true);
   };
 
@@ -177,6 +229,14 @@ export function SessionView({
   };
 
   const activeTaskDetails = selectedTask ? session.globalTaskDetails[selectedTask] : null;
+
+  const submitNextTasks = () => {
+    const uncheckedTaskIds = eligibleTasks
+      .filter(e => !selectedTaskIdsToStart.has(e.task.id))
+      .map(e => e.task.id);
+    onNextTasks(Array.from(selectedTaskIdsToStart), uncheckedTaskIds);
+    setIsTaskSelectionOpen(false);
+  };
 
   return (
     <div className="h-screen flex flex-col bg-slate-50 font-sans overflow-hidden">
@@ -451,7 +511,7 @@ export function SessionView({
               </p>
               
               <div className="space-y-3">
-                {session.taskBlocks[session.currentBlockIdx]?.map(task => (
+                {eligibleTasks.map(({ task, warning }) => (
                   <label key={task.id} className="flex items-start space-x-4 p-4 bg-white border border-slate-200 rounded-xl cursor-pointer hover:border-indigo-300 hover:shadow-md transition-all group">
                     <input
                       type="checkbox"
@@ -465,7 +525,10 @@ export function SessionView({
                       }}
                     />
                     <div className="flex-1 min-w-0">
-                      <div className="font-bold text-slate-800 text-sm truncate group-hover:text-indigo-700 transition-colors">Task {task.id} - {task.team}</div>
+                      <div className="font-bold text-slate-800 text-sm truncate group-hover:text-indigo-700 transition-colors flex items-center justify-between">
+                        <span>Task {task.id} - {task.team}</span>
+                        {warning && <span className="text-xs font-semibold text-rose-500 bg-rose-50 px-2 py-0.5 rounded ml-2 whitespace-nowrap">{warning}</span>}
+                      </div>
                       <div className="text-xs text-slate-500 mt-1.5 line-clamp-2 leading-relaxed">{task.desc}</div>
                     </div>
                   </label>
@@ -481,10 +544,7 @@ export function SessionView({
                 Cancel
               </button>
               <button
-                onClick={() => {
-                  onNextTasks(Array.from(selectedTaskIdsToStart));
-                  setIsTaskSelectionOpen(false);
-                }}
+                onClick={submitNextTasks}
                 className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg shadow-sm transition-colors text-sm"
               >
                 Confirm Sent Tasks

@@ -99,7 +99,7 @@ const SessionTile: React.FC<{ session: Session; onClick: () => void }> = ({ sess
 
 interface DashboardProps {
   sessions: Record<string, Session>;
-  onNewSession: (changeNumber: string, file: File) => void;
+  onNewSession: (changeNumber: string, file: File, regressionStartTask?: string) => void;
   onOpenSession: (changeNumber: string) => void;
 }
 
@@ -152,8 +152,8 @@ export function Dashboard({ sessions, onNewSession, onOpenSession }: DashboardPr
       <NewChangeModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
-        onSubmit={(changeNumber, file) => {
-          onNewSession(changeNumber, file);
+        onSubmit={(changeNumber, file, regressionStartTask) => {
+          onNewSession(changeNumber, file, regressionStartTask);
           setIsModalOpen(false);
         }}
         existingSessions={Object.keys(sessions)}

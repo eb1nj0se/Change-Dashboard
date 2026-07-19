@@ -5,6 +5,7 @@ export interface Task {
   poc: string;
   durationMins: number;
   plannedStart: number | null;
+  dependencies: string[];
 }
 
 export interface TaskAction {
@@ -33,14 +34,20 @@ export interface ActionHistoryItem {
   prevBlockIdx?: number;
   prevActiveTasks?: Task[];
   prevActiveTaskStates?: Record<string, TaskState>;
+  prevDispatchedTaskIds?: string[];
+  prevCompletedTaskIds?: string[];
 }
 
 export interface Session {
   changeNumber: string;
   taskBlocks: Task[][];
+  allTasks: Task[];
+  regressionStartTask?: string;
   currentBlockIdx: number;
   activeTasks: Task[];
   activeTaskStates: Record<string, TaskState>;
+  dispatchedTaskIds: string[];
+  completedTaskIds: string[];
   globalTaskDetails: Record<string, Task>;
   feed: FeedEvent[];
   actionHistory: ActionHistoryItem[];

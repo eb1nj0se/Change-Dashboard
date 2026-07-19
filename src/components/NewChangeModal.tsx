@@ -4,12 +4,13 @@ import { X, Upload } from 'lucide-react';
 interface NewChangeModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSubmit: (changeNumber: string, file: File) => void;
+  onSubmit: (changeNumber: string, file: File, regressionStartTask: string) => void;
   existingSessions: string[];
 }
 
 export function NewChangeModal({ isOpen, onClose, onSubmit, existingSessions }: NewChangeModalProps) {
   const [changeNumber, setChangeNumber] = useState('');
+  const [regressionStartTask, setRegressionStartTask] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [error, setError] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -34,8 +35,9 @@ export function NewChangeModal({ isOpen, onClose, onSubmit, existingSessions }: 
       return;
     }
 
-    onSubmit(trimmedChange, file);
+    onSubmit(trimmedChange, file, regressionStartTask.trim());
     setChangeNumber('');
+    setRegressionStartTask('');
     setFile(null);
   };
 
@@ -62,6 +64,20 @@ export function NewChangeModal({ isOpen, onClose, onSubmit, existingSessions }: 
                 onChange={(e) => setChangeNumber(e.target.value)}
                 className="w-full px-4 py-3 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all font-medium text-center text-lg shadow-sm text-slate-800"
                 placeholder="e.g., CHG3784363"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="regressionStartTask" className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
+                Start of Regression Tasks (Task ID):
+              </label>
+              <input
+                id="regressionStartTask"
+                type="text"
+                value={regressionStartTask}
+                onChange={(e) => setRegressionStartTask(e.target.value)}
+                className="w-full px-4 py-3 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all font-medium text-center text-lg shadow-sm text-slate-800"
+                placeholder="Optional (e.g. 3.015)"
               />
             </div>
 

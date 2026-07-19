@@ -42,7 +42,7 @@ export function useSessions() {
     return null;
   };
 
-  const createSession = async (changeNumber: string, file: File) => {
+  const createSession = async (changeNumber: string, file: File, regressionStartTask?: string) => {
     try {
       const data = await file.arrayBuffer();
       const workbook = XLSX.read(data, { type: 'array' });
@@ -50,42 +50,65 @@ export function useSessions() {
       const sheet = workbook.Sheets[sheetName];
       const rows = XLSX.utils.sheet_to_json<any[]>(sheet, { header: 1 });
 
-      const durationColIdx = 3;
+      const durationColIdx = 3; // Duration
       const groupColIdx = 4; // Planned Start
       const taskColIdx = 0; // Task No
       const teamColIdx = 1; // Description
+      const dependencyColIdx = 6; // Dependency
       const pocColIdx = 9; // POC Details
 
       let currentTasks: Task[] = [];
       const taskBlocks: Task[][] = [];
       let currentTimeVal: string | null = null;
       const globalTaskDetails: Record<string, Task> = {};
+      const allTasks: Task[] = [];
+
+      let hasReachedRegression = false;
 
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i];
         if (!row || row.length === 0) continue;
 
-        const timeVal = String(row[groupColIdx] || '').trim();
         let rawTask = String(row[taskColIdx] || '').trim();
-        let rawDesc = String(row[teamColIdx] || '').trim();
-        let rawPoc = String(row[pocColIdx] || '').trim();
-        const durationVal = String(row[durationColIdx] || '').trim();
-
-        rawDesc = rawDesc.replace(/_x000[dD]_/g, '').trim();
-        rawPoc = rawPoc ? rawPoc.replace(/_x000[dD]_/g, '').trim() : "No POC data in Column J";
-
-        if (!timeVal || timeVal.toLowerCase() === 'nan' || timeVal === 'Planned Start') {
-          continue;
-        }
-
+        
         let cleanTask = rawTask;
         const numTask = parseFloat(rawTask);
         if (!isNaN(numTask)) {
           cleanTask = Number.isInteger(numTask) ? numTask.toString() : numTask.toFixed(3);
         }
 
+        if (regressionStartTask && cleanTask === regressionStartTask) {
+          hasReachedRegression = true;
+        }
+
+        if (hasReachedRegression && cleanTask !== regressionStartTask) {
+          continue; // Skip tasks after regression start
+        }
+
+        const timeVal = String(row[groupColIdx] || '').trim();
+        let rawDesc = String(row[teamColIdx] || '').trim();
+        let rawPoc = String(row[pocColIdx] || '').trim();
+        const durationVal = String(row[durationColIdx] || '').trim();
+        const depsVal = String(row[dependencyColIdx] || '').trim();
+
+        rawDesc = rawDesc.replace(/_x000[dD]_/g, '').trim();
+        rawPoc = rawPoc ? rawPoc.replace(/_x000[dD]_/g, '').trim() : "No POC data";
+
+        if (!timeVal || timeVal.toLowerCase() === 'nan' || timeVal === 'Planned Start') {
+          continue; // Skip headers
+        }
+
         const teamMatch = rawDesc.split(/:|\s-|- /);
         const teamName = teamMatch.length > 0 ? teamMatch[0].trim() : rawDesc;
+
+        let dependencies = depsVal.split(',').map(d => d.trim()).filter(d => d.length > 0);
+        // Format dependency tasks to match exactly (e.g. 3.001)
+        dependencies = dependencies.map(d => {
+          if (d.toLowerCase() === 'time') return 'Time';
+          const n = parseFloat(d);
+          if (!isNaN(n)) return Number.isInteger(n) ? n.toString() : n.toFixed(3);
+          return d;
+        });
 
         const taskData: Task = { 
           id: cleanTask, 
@@ -93,9 +116,11 @@ export function useSessions() {
           desc: rawDesc, 
           poc: rawPoc,
           durationMins: parseDurationMins(durationVal),
-          plannedStart: parsePlannedStart(timeVal)
+          plannedStart: parsePlannedStart(timeVal),
+          dependencies
         };
         globalTaskDetails[cleanTask] = taskData;
+        allTasks.push(taskData);
 
         if (currentTimeVal === null) {
           currentTimeVal = timeVal;
@@ -118,7 +143,7 @@ export function useSessions() {
       const initialFeedEvent: FeedEvent = {
         id: generateId(),
         timestamp: getBstTimestamp(),
-        message: `--- SYSTEM: Successfully loaded ${taskBlocks.length} task blocks from plan. ---`,
+        message: `--- SYSTEM: Successfully loaded ${allTasks.length} tasks from plan. ---`,
         tag: 'tag_sys'
       };
 
@@ -127,9 +152,13 @@ export function useSessions() {
         [changeNumber]: {
           changeNumber,
           taskBlocks,
+          allTasks,
+          regressionStartTask,
           currentBlockIdx: 0,
           activeTasks: [],
           activeTaskStates: {},
+          dispatchedTaskIds: [],
+          completedTaskIds: [],
           globalTaskDetails,
           feed: [initialFeedEvent],
           actionHistory: []
@@ -144,25 +173,23 @@ export function useSessions() {
     }
   };
 
-  const triggerNextTasks = (changeNumber: string, selectedTaskIds: string[]) => {
+  const triggerNextTasks = (changeNumber: string, selectedTaskIds: string[], uncheckedTaskIds: string[] = []) => {
     setSessions(prev => {
       const session = prev[changeNumber];
       if (!session) return prev;
 
-      if (session.currentBlockIdx >= session.taskBlocks.length) {
-        alert("You have reached the end of the cutover plan!");
-        return prev;
-      }
-
-      const allTasksInBlock = session.taskBlocks[session.currentBlockIdx];
-      const activeTasks = allTasksInBlock.filter(t => selectedTaskIds.includes(t.id));
+      const newTasksToStart = session.allTasks.filter(t => 
+        selectedTaskIds.includes(t.id) && !(session.dispatchedTaskIds || []).includes(t.id)
+      );
       
-      const activeTaskStates: Record<string, TaskState> = {};
+      if (newTasksToStart.length === 0 && uncheckedTaskIds.length === 0) return prev;
+
+      const newActiveTaskStates = { ...session.activeTaskStates };
       const newEvents: FeedEvent[] = [];
       const now = Date.now();
 
-      activeTasks.forEach(task => {
-        activeTaskStates[task.id] = {
+      newTasksToStart.forEach(task => {
+        newActiveTaskStates[task.id] = {
           status: 'pink',
           history: [],
           startedAt: now
@@ -175,22 +202,38 @@ export function useSessions() {
         });
       });
 
+      uncheckedTaskIds.forEach(taskId => {
+        newEvents.push({
+          id: generateId(),
+          timestamp: getBstTimestamp(),
+          message: `⏭️ Task ${taskId} bypassed.`,
+          tag: 'tag_note'
+        });
+      });
+
       const historyItem: ActionHistoryItem = {
         id: generateId(),
         type: 'next_tasks',
         feedEventIds: newEvents.map(e => e.id),
-        prevBlockIdx: session.currentBlockIdx,
         prevActiveTasks: session.activeTasks,
-        prevActiveTaskStates: session.activeTaskStates
+        prevActiveTaskStates: session.activeTaskStates,
+        prevDispatchedTaskIds: session.dispatchedTaskIds || [],
+        prevCompletedTaskIds: session.completedTaskIds || []
       };
+
+      const newDispatched = [...(session.dispatchedTaskIds || []), ...newTasksToStart.map(t => t.id), ...uncheckedTaskIds];
+      const newCompleted = [...(session.completedTaskIds || []), ...uncheckedTaskIds];
+      // Keep previously active tasks that are NOT completed yet, plus new ones
+      const nextActiveTasks = [...session.activeTasks.filter(t => !newCompleted.includes(t.id)), ...newTasksToStart];
 
       return {
         ...prev,
         [changeNumber]: {
           ...session,
-          activeTasks,
-          activeTaskStates,
-          currentBlockIdx: session.currentBlockIdx + 1,
+          activeTasks: nextActiveTasks,
+          activeTaskStates: newActiveTaskStates,
+          dispatchedTaskIds: newDispatched,
+          completedTaskIds: newCompleted,
           feed: [...session.feed, ...newEvents],
           actionHistory: [...session.actionHistory, historyItem]
         }
@@ -270,6 +313,7 @@ export function useSessions() {
               history: [...taskState.history, taskAction]
             }
           },
+          completedTaskIds: [...(session.completedTaskIds || []), taskId],
           feed: [...session.feed, newEvent]
         }
       };
@@ -290,7 +334,7 @@ export function useSessions() {
         desc: `Checkpoint added for task ${originalTaskId}`,
         poc: "System",
         durationMins,
-        plannedStart: now
+        plannedStart: now, dependencies: []
       };
 
       const newEvent: FeedEvent = {
@@ -391,6 +435,11 @@ export function useSessions() {
           if (prevAction.type === 'done') newStatus = 'green';
         }
 
+        let newCompletedTaskIds = session.completedTaskIds || [];
+        if (lastAction.type === 'done') {
+          newCompletedTaskIds = newCompletedTaskIds.filter(id => id !== taskId);
+        }
+
         const newFeed = session.feed.filter(f => f.id !== lastAction.feedEventId);
 
         return {
@@ -405,6 +454,7 @@ export function useSessions() {
                 history: historyCopy
               }
             },
+            completedTaskIds: newCompletedTaskIds,
             feed: newFeed
           }
         };
@@ -418,11 +468,15 @@ export function useSessions() {
         let newActiveTaskStates = session.activeTaskStates;
         let newActiveTasks = session.activeTasks;
         let newCurrentBlockIdx = session.currentBlockIdx;
+        let newDispatchedTaskIds = session.dispatchedTaskIds || [];
+        let newCompletedTaskIds = session.completedTaskIds || [];
 
         if (lastAction.type === 'next_tasks') {
           newActiveTaskStates = lastAction.prevActiveTaskStates || {};
           newActiveTasks = lastAction.prevActiveTasks || [];
           newCurrentBlockIdx = lastAction.prevBlockIdx ?? session.currentBlockIdx;
+          newDispatchedTaskIds = lastAction.prevDispatchedTaskIds || [];
+          newCompletedTaskIds = lastAction.prevCompletedTaskIds || session.completedTaskIds || [];
         }
 
         const newFeed = session.feed.filter(f => !lastAction.feedEventIds.includes(f.id));
@@ -434,6 +488,8 @@ export function useSessions() {
             activeTaskStates: newActiveTaskStates,
             activeTasks: newActiveTasks,
             currentBlockIdx: newCurrentBlockIdx,
+            dispatchedTaskIds: newDispatchedTaskIds,
+            completedTaskIds: newCompletedTaskIds,
             feed: newFeed,
             actionHistory: historyCopy
           }
